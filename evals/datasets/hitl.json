@@ -1,0 +1,68 @@
+{
+  "category": "hitl",
+  "description": "Human-in-the-loop booking approval, confirm, and cancel flows.",
+  "cases": [
+    {
+      "id": "hitl-confirm-booking",
+      "description": "Book then confirm creates exactly one booking row.",
+      "tags": ["confirm", "write"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "Book flights TIA to FRA on 2025-09-15 for Ana Krasniqi"
+        },
+        {
+          "action": "confirm"
+        }
+      ],
+      "expectations": {
+        "outcome": "completed",
+        "http_status": 200,
+        "message_contains": ["Created booking BK-"],
+        "pending_approval": false,
+        "plan_status": "completed",
+        "booking_created": true
+      }
+    },
+    {
+      "id": "hitl-cancel-booking",
+      "description": "Book then cancel aborts without SQLite write.",
+      "tags": ["cancel", "no_write"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "Book flights TIA to FRA on 2025-09-15"
+        },
+        {
+          "action": "cancel"
+        }
+      ],
+      "expectations": {
+        "outcome": "cancelled",
+        "http_status": 200,
+        "message_contains": ["Booking request cancelled."],
+        "pending_approval": false,
+        "plan_status": "completed",
+        "booking_created": false
+      }
+    },
+    {
+      "id": "hitl-no-write-before-confirm",
+      "description": "Pending approval must not create a booking until confirm.",
+      "tags": ["approval", "no_write"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "Book flights TIA to FRA on 2025-09-15"
+        }
+      ],
+      "expectations": {
+        "outcome": "pending_approval",
+        "http_status": 200,
+        "message_contains": ["Booking approval required"],
+        "pending_approval": true,
+        "booking_created": false
+      }
+    }
+  ]
+}

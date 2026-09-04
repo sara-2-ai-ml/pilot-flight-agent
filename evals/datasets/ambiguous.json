@@ -1,0 +1,65 @@
+{
+  "category": "ambiguous",
+  "description": "Requests that require clarification or cannot be fulfilled with available data.",
+  "cases": [
+    {
+      "id": "ambiguous-cheapest-fare",
+      "description": "Cheapest-fare intent triggers ask-user because mock API has no reliable prices.",
+      "tags": ["pricing", "ask_user"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "Find the cheapest flight TIA to FRA on 2025-09-15"
+        }
+      ],
+      "expectations": {
+        "outcome": "ask_user",
+        "http_status": 200,
+        "message_contains": ["schedule"],
+        "pending_approval": false,
+        "plan_status": "completed",
+        "booking_created": false
+      }
+    },
+    {
+      "id": "ambiguous-vague-route",
+      "description": "Vague destination should ask the user for a concrete route before searching.",
+      "tags": ["vague", "route", "nlu"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "I need a flight somewhere in Europe next week"
+        }
+      ],
+      "expectations": {
+        "outcome": "ask_user",
+        "http_status": 200,
+        "message_contains": ["flying from"],
+        "pending_approval": false,
+        "plan_status": null,
+        "booking_created": false
+      }
+    },
+    {
+      "id": "ambiguous-follow-up-after-ask",
+      "description": "Follow-up turn after ask-user should not auto-book without explicit selection.",
+      "tags": ["ask_user", "multi_turn"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "Find the cheapest flight TIA to FRA on 2025-09-15"
+        },
+        {
+          "action": "chat",
+          "message": "Just pick the first option please"
+        }
+      ],
+      "expectations": {
+        "outcome": "pending_approval",
+        "http_status": 200,
+        "message_contains": ["Booking approval required"],
+        "booking_created": false
+      }
+    }
+  ]
+}

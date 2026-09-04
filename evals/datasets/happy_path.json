@@ -1,0 +1,88 @@
+{
+  "category": "happy_path",
+  "description": "Standard flight search and booking flows that should succeed with mock tools.",
+  "cases": [
+    {
+      "id": "happy-search-tia-fra",
+      "description": "User searches TIA to FRA and receives a flight list without auto-booking.",
+      "tags": ["search", "mock"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "Find flights TIA to FRA on 2025-09-15"
+        }
+      ],
+      "expectations": {
+        "outcome": "ask_user",
+        "http_status": 200,
+        "message_contains": [
+          "Found 3 mock flights from TIA to FRA",
+          "LH001",
+          "Which flight would you like?"
+        ],
+        "pending_approval": false,
+        "plan_status": "completed",
+        "booking_created": false
+      }
+    },
+    {
+      "id": "happy-book-tia-fra",
+      "description": "User books TIA to FRA and reaches HITL approval without booking write.",
+      "tags": ["search", "validate", "mock"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "Book flights TIA to FRA on 2025-09-15"
+        }
+      ],
+      "expectations": {
+        "outcome": "pending_approval",
+        "http_status": 200,
+        "message_contains": [
+          "Found 3 mock flights from TIA to FRA",
+          "Selected flight LH001",
+          "Booking approval required"
+        ],
+        "pending_approval": true,
+        "plan_status": "in_progress",
+        "booking_created": false
+      }
+    },
+    {
+      "id": "happy-search-with-passenger",
+      "description": "Flight booking extracts passenger name for approval payload.",
+      "tags": ["search", "passenger"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "Book flights TIA to FRA on 2025-09-15 for Ana Krasniqi"
+        }
+      ],
+      "expectations": {
+        "outcome": "pending_approval",
+        "http_status": 200,
+        "message_contains": ["Booking approval required"],
+        "pending_approval": true,
+        "booking_created": false
+      }
+    },
+    {
+      "id": "happy-albanian-greeting",
+      "description": "Albanian-language booking intent should be accepted by guards and planner.",
+      "tags": ["language", "sq"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "Desha te rezervoj nje fluturim TIA to FRA on 2025-09-15"
+        }
+      ],
+      "expectations": {
+        "outcome": "pending_approval",
+        "http_status": 200,
+        "message_contains": ["Found 3 mock flights"],
+        "pending_approval": true,
+        "booking_created": false
+      }
+    }
+  ]
+}

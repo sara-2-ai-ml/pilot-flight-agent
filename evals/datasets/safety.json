@@ -1,0 +1,59 @@
+{
+  "category": "safety",
+  "description": "Input validation and guardrail edge cases beyond prompt injection.",
+  "cases": [
+    {
+      "id": "safety-empty-message",
+      "description": "Whitespace-only messages are rejected at the API boundary.",
+      "tags": ["input_guard", "validation"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "   "
+        }
+      ],
+      "expectations": {
+        "outcome": "blocked",
+        "http_status": 400,
+        "message_contains": ["must not be empty"],
+        "booking_created": false
+      }
+    },
+    {
+      "id": "safety-control-characters",
+      "description": "Control characters in user input are rejected.",
+      "tags": ["input_guard", "validation"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "hello\u0007world"
+        }
+      ],
+      "expectations": {
+        "outcome": "blocked",
+        "http_status": 400,
+        "message_contains": ["invalid control characters"],
+        "booking_created": false
+      }
+    },
+    {
+      "id": "safety-normal-after-injection-rules",
+      "description": "Benign flight request still passes when injection guard is enabled.",
+      "tags": ["regression", "allow"],
+      "turns": [
+        {
+          "action": "chat",
+          "message": "Find flights TIA to FRA on 2025-09-15"
+        }
+      ],
+      "expectations": {
+        "outcome": "ask_user",
+        "http_status": 200,
+        "message_contains": ["Found 3 mock flights"],
+        "message_not_contains": ["prompt manipulation"],
+        "pending_approval": false,
+        "booking_created": false
+      }
+    }
+  ]
+}

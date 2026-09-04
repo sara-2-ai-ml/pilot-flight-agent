@@ -1,0 +1,33 @@
+services:
+  api:
+    build: .
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      BOOKING_DB_PATH: /app/data/bookings.db
+      PLANNER_USE_MOCK: ${PLANNER_USE_MOCK:-true}
+      FLIGHT_API_USE_MOCK: ${FLIGHT_API_USE_MOCK:-true}
+      TOOLS_MODE: ${TOOLS_MODE:-direct}
+      MCP_PYTHON_EXECUTABLE: /usr/local/bin/python
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+    volumes:
+      - booking-data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  booking-data:
