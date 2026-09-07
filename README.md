@@ -27,9 +27,9 @@ Optional (only for live integrations):
 
 ## System design
 
-**Çfarë bën sistemi:** merr mesazhe natyrore (EN/SQ), kupton intentin dhe rrugën, ndërton një plan të strukturuar, ekzekuton kërkim fluturimesh, dhe **ndalon për aprovim njerëzor** para çdo shkrimi në bazë. Çdo bisedë (`conversation_id`) mban gjendjen e plotë — nuk është chat stateless.
+**What the system does:** accepts natural-language messages (EN/SQ), extracts intent and route, builds a structured plan, runs flight search, and **pauses for human approval** before any database write. Each conversation (`conversation_id`) holds full state — this is not a stateless chat API.
 
-### 1. Pamje e përgjithshme (containers)
+### 1. High-level view (containers)
 
 ```mermaid
 flowchart LR
@@ -57,47 +57,47 @@ flowchart LR
     Agent -->|"only after /confirm"| SQLite
 ```
 
-| Pjesa | Skop (çfarë bën) |
-|-------|-------------------|
-| **React UI** | Chat, zgjedhje sedilje, ekran aprovimi — thërret API-n përmes proxy `/api` |
-| **FastAPI** | HTTP, guardrails, rate limit, trace_id — s’ka logjikë biznesi të rëndë |
-| **Agent runtime** | NLU → sqarim → plan → workers → reflection — truri i produktit |
-| **State store** | `AgentState` për çdo `conversation_id` (plan, fluturime, approval në pritje) |
-| **Anthropic** | Kur `*_USE_MOCK=false`: kupton tekstin, planifikon, formulon pyetje natyrale |
-| **Flight API** | Kthen orare (mock ose live); jo çmime të besueshme në mock |
-| **SQLite** | Rezervime vetëm pas `POST /approvals/confirm` |
+| Component | Purpose |
+|-----------|---------|
+| **React UI** | Chat, seat selection, approval screen — calls the API via `/api` proxy |
+| **FastAPI** | HTTP, guardrails, rate limits, trace_id — no heavy business logic |
+| **Agent runtime** | NLU → clarification → plan → workers → reflection — core product logic |
+| **State store** | `AgentState` per `conversation_id` (plan, flights, pending approval) |
+| **Anthropic** | When `*_USE_MOCK=false`: understands text, plans steps, generates natural prompts |
+| **Flight API** | Returns schedules (mock or live); mock mode has no reliable pricing |
+| **SQLite** | Bookings only after `POST /approvals/confirm` |
 
 ---
 
-### 2. Shtresat e agentit
+### 2. Agent layers
 
 ```mermaid
 flowchart TB
-    subgraph Input["Hyrje"]
+    subgraph Input["Input"]
         MSG["User message"]
         G["Guardrails"]
     end
-    subgraph Understand["Kuptim"]
+    subgraph Understand["Understanding"]
         NLU["NLU\nintent + slots"]
-        CONV["Conversational\npyetje natyrale"]
+        CONV["Conversational\nnatural prompts"]
         TD["Travel details\npax · prefs"]
     end
-    subgraph Reason["Arsyetim"]
+    subgraph Reason["Reasoning"]
         PL["Planner\nPlan JSON"]
         RP["Replanning"]
     end
-    subgraph Act["Veprim"]
+    subgraph Act["Action"]
         CO["Coordinator"]
         FW["FlightWorker READ"]
         BW["BookingWorker WRITE"]
     end
-    subgraph Judge["Gjykim"]
+    subgraph Judge["Evaluation"]
         RF["Reflection"]
         BD["Budget"]
     end
 
     MSG --> G --> NLU
-    NLU -->|mungon info| CONV
+    NLU -->|missing info| CONV
     NLU --> TD --> PL --> CO
     CO --> FW & BW --> RF
     RF -->|REPLAN| RP --> PL
@@ -105,19 +105,19 @@ flowchart TB
     BD -.-> CO
 ```
 
-| Shtresa | Modul | Skop |
-|---------|--------|------|
-| **Guardrails** | `app/guardrails/` | Blokon input të rrezikshëm, limiton shpejtësinë, pastron output |
-| **NLU** | `app/agent/nlu.py` | Nxjerr slots strukturore — jo përgjigje për klientin |
-| **Conversational** | `app/agent/conversational_prompts.py` | Tekst bisedor për pyetjet (pa kode aeroporti në copy) |
-| **Travel details** | `app/agent/travel_details.py` | Para book: one-way/round-trip, pasagjerë, preferenca |
-| **Planner** | `app/agent/planning.py` | Hapa: search → validate → create_booking |
-| **Coordinator** | `app/agent/coordinator.py` | Ekzekuton hapin; WRITE → `pending_approval`, jo DB |
-| **Reflection** | `app/agent/reflection.py` | Pas çdo hapi: vazhdo, riprovo, replan, pyet user, dështo |
+| Layer | Module | Purpose |
+|-------|--------|---------|
+| **Guardrails** | `app/guardrails/` | Blocks unsafe input, rate-limits, sanitizes output |
+| **NLU** | `app/agent/nlu.py` | Extracts structured slots — not customer-facing copy |
+| **Conversational** | `app/agent/conversational_prompts.py` | Natural chat text for questions (no airport codes in copy) |
+| **Travel details** | `app/agent/travel_details.py` | Before book: one-way/round-trip, passengers, preferences |
+| **Planner** | `app/agent/planning.py` | Steps: search → validate → create_booking |
+| **Coordinator** | `app/agent/coordinator.py` | Runs each step; WRITE → `pending_approval`, not DB |
+| **Reflection** | `app/agent/reflection.py` | After each step: continue, retry, replan, ask user, fail |
 
 ---
 
-### 3. Schema: `AgentState` (gjendja e bisedës)
+### 3. Schema: `AgentState` (conversation state)
 
 ```mermaid
 erDiagram
@@ -151,14 +151,14 @@ erDiagram
     }
 ```
 
-| Fushë | Skop |
-|-------|------|
-| `plan` | Hapat aktualë dhe statusi (pending / in_progress / completed) |
-| `flight_search` | Rruga, data, rezultatet, fluturimi i zgjedhur |
-| `pending_approval` | Payload për UI — **deri sa user s’konfirmon, s’ka INSERT në SQLite** |
-| `pending_question` | Pyetja e fundit për user (sqarim / zgjedhje fluturimi) |
-| `reflection_history` | Çfarë vendosi evaluatori pas çdo hapi |
-| `tool_history` | Log i thirrjeve READ (search, validate) |
+| Field | Purpose |
+|-------|---------|
+| `plan` | Current steps and status (pending / in_progress / completed) |
+| `flight_search` | Route, date, results, selected flight |
+| `pending_approval` | Payload for the UI — **no SQLite INSERT until the user confirms** |
+| `pending_question` | Last question to the user (clarification / flight selection) |
+| `reflection_history` | What the evaluator decided after each step |
+| `tool_history` | Log of READ tool calls (search, validate) |
 
 ---
 
@@ -176,15 +176,15 @@ erDiagram
 }
 ```
 
-| Slot | Skop |
-|------|------|
-| `intent` | Kërkim vs rezervim vs përshëndetje |
-| `origin` / `destination` | IATA **brenda sistemit** — klienti sheh emra qytetesh në chat |
-| `needs_clarification` | Po → loop ndalon dhe pyet përmes conversational layer |
+| Slot | Purpose |
+|------|---------|
+| `intent` | Search vs book vs greeting |
+| `origin` / `destination` | IATA **inside the system** — the user sees city names in chat |
+| `needs_clarification` | If true → loop pauses and asks via the conversational layer |
 
 ---
 
-### 5. Schema: plani (`Plan` → workers)
+### 5. Schema: plan (`Plan` → workers)
 
 ```mermaid
 flowchart LR
@@ -194,23 +194,23 @@ flowchart LR
     style B fill:#f96,stroke:#333
 ```
 
-| Hapi | Skop |
-|------|------|
-| **search** | Thirr API / mock → lista `FlightOption` në state |
-| **select** | Zgjedh opsionin (“LH001”, “first one”) |
-| **booking** | **Nuk shkruan** — vendos `pending_approval`, pret `/confirm` |
+| Step | Purpose |
+|------|---------|
+| **search** | Call API / mock → `FlightOption` list stored in state |
+| **select** | Pick an option ("LH001", "first one") |
+| **booking** | **Does not write** — sets `pending_approval`, waits for `/confirm` |
 
 **Evaluator:**
 
-| Status | Skop |
-|--------|------|
-| `CONTINUE` | Hapi tjetër |
-| `ASK_USER` | Pauzë (lista fluturimesh, çmim i padisponueshëm) |
-| `RETRY` / `REPLAN` / `FAIL` | Riprovo / plan i ri / gabim |
+| Status | Purpose |
+|--------|---------|
+| `CONTINUE` | Next step |
+| `ASK_USER` | Pause (flight list, unavailable pricing) |
+| `RETRY` / `REPLAN` / `FAIL` | Retry / new plan / error |
 
 ---
 
-### 6. Human-in-the-loop (shkrimi në DB)
+### 6. Human-in-the-loop (database writes)
 
 ```mermaid
 sequenceDiagram
@@ -221,25 +221,25 @@ sequenceDiagram
     participant A as POST /approvals/confirm
     participant D as SQLite
 
-    U->>C: Book / zgjidh LH001
+    U->>C: Book / select LH001
     C->>S: search + validate OK
     C->>S: pending_approval = payload
-    Note over D: asnjë INSERT
+    Note over D: no INSERT yet
     C-->>U: Pay and book UI
     U->>A: confirm
     A->>D: create_booking
     A->>S: clear pending_approval
 ```
 
-| Endpoint | Skop |
-|----------|------|
-| `POST /chat` | Turn i ri — vetëm READ + approval në pritje |
-| `POST /approvals/confirm` | Shkrimi i vetëm i lejuar në DB |
-| `POST /approvals/cancel` | Anulon approval, zero DB |
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /chat` | New turn — READ tools only + pending approval |
+| `POST /approvals/confirm` | Only allowed path to write to the DB |
+| `POST /approvals/cancel` | Clears approval, no DB write |
 
 ---
 
-### 7. Chat turn (një mesazh)
+### 7. Chat turn (one message)
 
 ```mermaid
 sequenceDiagram
@@ -253,17 +253,17 @@ sequenceDiagram
 
     U->>L: message
     L->>N: extract_travel_slots()
-    alt mungon rrugë / datë
-        L->>C: pyetje natyrale
+    alt missing route / date
+        L->>C: natural prompt
         L-->>U: pause
-    else gati
+    else ready
         L->>P: ensure_plan()
-        loop deri pause
+        loop until pause
             L->>W: execute step
             W-->>L: result
             L->>E: CONTINUE / ASK_USER / ...
         end
-        L-->>U: fluturime / approval / reply
+        L-->>U: flights / approval / reply
     end
 ```
 
@@ -273,16 +273,16 @@ sequenceDiagram
 
 | Flag | `true` | `false` |
 |------|--------|---------|
-| `NLU_USE_MOCK` | Regex + lista qytetesh | Claude NLU |
-| `PLANNER_USE_MOCK` | Plan mock | Claude plan JSON |
-| `FLIGHT_API_USE_MOCK` | 3 fluturime LH mock | Aviationstack / Lufthansa |
+| `NLU_USE_MOCK` | Regex + city lists | Claude NLU |
+| `PLANNER_USE_MOCK` | Mock plan | Claude plan JSON |
+| `FLIGHT_API_USE_MOCK` | 3 mock LH flights | Aviationstack / Lufthansa |
 | `TOOLS_MODE` | `direct` | `mcp` stdio |
 
-Vlerat në `.env` kanë prioritet mbi shell env për `NLU_USE_MOCK` / `PLANNER_USE_MOCK`.
+Values in `.env` take precedence over shell env for `NLU_USE_MOCK` / `PLANNER_USE_MOCK`.
 
 ---
 
-Më shumë: [docs/architecture.md](docs/architecture.md) · [docs/guardrails.md](docs/guardrails.md) · [docs/threat-model.md](docs/threat-model.md)
+Further reading: [docs/architecture.md](docs/architecture.md) · [docs/guardrails.md](docs/guardrails.md) · [docs/threat-model.md](docs/threat-model.md)
 
 ## Quick start
 
